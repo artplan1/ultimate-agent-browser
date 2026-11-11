@@ -44,7 +44,10 @@ const findAction = strEnum([
   'select',
 ])
 const waitState = strEnum(['visible', 'hidden', 'attached', 'detached'])
-const loadState = strEnum(['load', 'domcontentloaded', 'networkidle'])
+const loadState = strEnum(['load', 'domcontentloaded', 'networkidle'], {
+  description:
+    'Page load event to wait for; `networkidle` is the one that means a client-rendered app has mounted.',
+})
 
 /** One step of a `browse` call, as the tool offers it. */
 export const webStep = union([
@@ -55,12 +58,18 @@ export const webStep = union([
     }),
   }),
   obj({
-    snapshot: obj({
-      interactive: opt(bool({ description: 'Only elements you can act on; default true.' })),
-      compact: opt(bool({ description: 'Drop empty structural nodes.' })),
-      depth: opt(int({ minimum: 1, description: 'Limit the tree to this depth.' })),
-      scope: opt(str({ description: 'CSS selector to snapshot one part of the page.' })),
-    }),
+    snapshot: obj(
+      {
+        interactive: opt(bool({ description: 'Only elements you can act on; default true.' })),
+        compact: opt(bool({ description: 'Drop empty structural nodes.' })),
+        depth: opt(int({ minimum: 1, description: 'Limit the tree to this depth.' })),
+        scope: opt(str({ description: 'CSS selector to snapshot one part of the page.' })),
+      },
+      {
+        description:
+          'How to snapshot: an object, `{}` for the whole page, never a boolean. It returns the accessibility tree with @e1-style refs.',
+      },
+    ),
   }),
   obj({
     click: str({ description: 'Ref from the last snapshot, such as @e3, or a CSS selector.' }),
@@ -80,18 +89,24 @@ export const webStep = union([
     }),
   }),
   obj({
-    wait: obj({
-      selector: opt(str()),
-      state: opt(waitState),
-      text: opt(str()),
-      url: opt(str({ description: 'Glob, such as **/dashboard.' })),
-      load: opt(loadState),
-      fn: opt(str({ description: 'JavaScript expression that becomes true.' })),
-      ms: opt(int({ minimum: 0, description: 'Wait this long.' })),
-      timeoutMs: opt(
-        int({ minimum: 1, description: 'Give up after this long; default timeoutMs.' }),
-      ),
-    }),
+    wait: obj(
+      {
+        selector: opt(str()),
+        state: opt(waitState),
+        text: opt(str()),
+        url: opt(str({ description: 'Glob, such as **/dashboard.' })),
+        load: opt(loadState),
+        fn: opt(str({ description: 'JavaScript expression that becomes true.' })),
+        ms: opt(int({ minimum: 0, description: 'Wait this long.' })),
+        timeoutMs: opt(
+          int({ minimum: 1, description: 'Give up after this long; default timeoutMs.' }),
+        ),
+      },
+      {
+        description:
+          'What to wait for: an object with exactly one of selector, text, url, load, fn or ms, such as `{"load": "networkidle"}`, never `{"load": true}`.',
+      },
+    ),
   }),
   obj({ eval: str({ description: 'JavaScript in the page; its value is returned.' }) }),
   obj({

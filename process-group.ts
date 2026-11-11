@@ -102,14 +102,17 @@ export function groupAlive(pid?: number) {
 export function childGroups(pid: number): number[] {
   let output: string
   try {
-    output = execFileSync(PS, ['-o', 'pgid=', '-P', String(pid)], { encoding: 'utf8' })
+    // The parent of each process, in one read: `ps` has no parent selector on macOS, where `-P` is an illegal option.
+    output = execFileSync(PS, ['-A', '-o', 'ppid=,pgid='], { encoding: 'utf8' })
   } catch {
-    // No children, or no such process: nothing of its own to stop.
+    // No process table to read: nothing known to stop.
     return []
   }
   const groups = new Set<number>()
   for (const line of output.split('\n')) {
-    const group = Number(line.trim())
+    const row = /^\s*(\d+)\s+(\d+)\s*$/.exec(line)
+    if (!row || Number(row[1]) !== pid) continue
+    const group = Number(row[2])
     if (Number.isSafeInteger(group) && group > 0 && group !== pid) groups.add(group)
   }
   return [...groups]

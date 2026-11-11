@@ -18,6 +18,7 @@ import {
   parseBatch,
   pidFile,
   recoverDaemon,
+  retireStaleDaemon,
   runCli,
   sessionName,
   socketDir,
@@ -171,8 +172,9 @@ export default function agentBrowserExtension(host: Host) {
         description: [
           'Drive a real Chrome through the agent-browser CLI, in a browser that stays open between calls of this conversation: `url` or an `open` step loads a page, `snapshot` returns its accessibility tree with @e1-style refs, and `click`, `fill` and `press` act on those refs. Cookies, tabs and logins persist from one call to the next, so sign in once and keep working; `close` ends the session and its logins.',
           'It takes the shape an agent already knows from a browser tool — `url`, steps, `screenshot`, `viewport`, `close` — with the difference that the browser is kept, so refs and logins survive between calls.',
+          'Every step is an object, and `snapshot` and `wait` describe how, so each takes an object, never a boolean: `{"snapshot": {}}` snapshots the page, with optional `interactive`, `compact`, `depth` and `scope`, and `{"wait": {"load": "networkidle"}}` waits for a load event, with exactly one of `selector`, `text`, `url`, `load`, `fn` or `ms` per wait; `load` is `load`, `domcontentloaded` or `networkidle`, so `{"snapshot": true}` and `{"wait": {"load": true}}` are rejected.',
           'Screenshots are a step, not a tool of their own: a `screenshot` step saves a PNG at a `viewport` you set, with `theme` for one UI and other pages alike; a final screenshot is returned unless `screenshot: false`.',
-          'Steps run in order in one batch and stop at the first failure; each times out after 30 s (timeoutMs). Refs stay valid until the page changes, so snapshot again after navigating.',
+          'Steps run in order in one batch and stop at the first failure; each times out after 30 s (timeoutMs). Refs stay valid until the page changes, so snapshot again after navigating; an app that mounts after load (Next-style) can return 0 refs to a snapshot straight after `open`, so wait with `{"wait": {"load": "networkidle"}}` before the first snapshot.',
         ].join(' '),
         // Two calls must not drive one session at once: a round of them is one browser script.
         executionMode: 'sequential',
@@ -263,6 +265,13 @@ export default function agentBrowserExtension(host: Host) {
               if (item.command[0] === 'screenshot')
                 await mkdir(dirname(item.command[1]), { recursive: true })
             api.output(`agent-browser ${session}: ${steps.length} step(s)\n`)
+            // A daemon from another CLI version cannot run these steps at all: retire it before the batch reaches it.
+            const retired = await retireStaleDaemon(session, {
+              home: host.home,
+              cwd,
+              pidFile: pidFile(pids),
+              signal: context.abortSignal,
+            })
             const { rows, failure } = await runBatch(planned, {
               home: host.home,
               session,
@@ -303,10 +312,13 @@ export default function agentBrowserExtension(host: Host) {
               const line = error.text?.split('\n')[0]
               if (line) errors.push(`Page error: ${line.replace(/^Uncaught /, '')}`)
             }
-            // Not a step's failure: nothing ran, and the CLI says why.
+            // Not a step's failure: nothing ran, and the CLI says why. A retired daemon says why the versions differ.
             if (outcomes.length === 0)
               throw new Error(
-                `agent-browser did not run the steps: ${failure ?? firstFailure(planned, rows) ?? 'no step ran'}`,
+                [
+                  `agent-browser did not run the steps: ${failure ?? firstFailure(planned, rows) ?? 'no step ran'}`,
+                  ...(retired ? [retired] : []),
+                ].join('\n'),
               )
             const title = field(result('title'), 'title') ?? opened.title
             const url = field(result('url'), 'url') ?? opened.url
@@ -330,6 +342,7 @@ export default function agentBrowserExtension(host: Host) {
             const output = [
               ...(title ? [`Title: ${title}`] : []),
               ...(url ? [`URL: ${url}`] : []),
+              ...(retired ? [retired] : []),
               ...outcomes,
               ...(picture ? [`PNG: ${picture.file}`] : []),
               ...errors,

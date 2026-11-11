@@ -59,6 +59,29 @@ Steps: `open`, `snapshot` (`interactive` by default, plus `scope`, `depth`, `com
 `wait` (exactly one of `selector`, `text`, `url`, `load`, `fn` or `ms`), `eval`, `screenshot` (`path`, `fullPage`),
 `viewport` `[width, height]`, and `close` (ends the session, logins included).
 
+**Every step is an object, and `snapshot` and `wait` describe *how*, so each takes an object even when it is empty.**
+This is where habits from Ultimate's built-in `browser` tool break: `{"snapshot": true}` and `{"wait": {"load": true}}`
+are rejected (`expected object, got boolean` / `expected string, got boolean`). The forms are:
+
+```json
+{ "snapshot": {} }
+{ "snapshot": { "scope": "#main", "depth": 3, "compact": true, "interactive": false } }
+{ "wait": { "load": "networkidle" } }
+{ "wait": { "selector": "#done", "state": "visible", "timeoutMs": 20000 } }
+```
+
+`snapshot` takes `interactive` (default true), `compact`, `depth` and `scope`. `wait` takes exactly one of `selector`
+(with `state`), `text`, `url`, `load`, `fn` and `ms`, plus `timeoutMs`; `load` is `"load"`, `"domcontentloaded"` or
+`"networkidle"` — a string, never a boolean.
+
+**A page that mounts after load.** `{ "snapshot": {} }` straight after `open` can legitimately return 0 refs: a
+Next-style app hydrates after the page's `load` event, so the accessibility tree is still empty. Wait for the network to
+settle before the first snapshot:
+
+```json
+{ "steps": [{ "wait": { "load": "networkidle" } }, { "snapshot": {} }] }
+```
+
 A call returns the page title and URL, a line per step with what it returned, the PNG's path, the console and page
 errors the call provoked, and the last snapshot's tree for the refs it refers to. It ends with a screenshot unless
 `screenshot: false`; `path` names where that PNG goes (it must end in `.png` and resolves against the conversation's
@@ -96,6 +119,15 @@ The daemon's socket directory is `/tmp/ultimate-ab-<8 hex of the home>`: a unix 
 the CLI's default under the home overflows it in a preview, whose home is a long temporary path. The home decides the
 name, so two Ultimates never share a directory, and a directory still holding a daemon's pid file is never removed.
 
+**Upgrading the CLI.** A session's daemon is a process of its own, and the CLI reuses it after the binary is upgraded: a
+daemon started by 0.38.2 answers 0.41.2's `batch --omit-command` with `Unknown command: --omit-command`, so every call
+of that session fails and `close` is the only way out. So before each batch the extension compares the version a
+session's daemon recorded (`<socket dir>/<session>.version`) with the binary's own (`agent-browser --version`) and, when
+they differ, stops that daemon with its browser first — one attempt, no retries — and says what happened in the result
+as a `Note: …` line. The steps then run in a fresh browser, and logins from the old one are gone. A daemon that recorded
+no version was started by a CLI older than that file, so it is just as stale and is retired the same way; a daemon whose
+version cannot be compared (the binary does not answer `--version`) is left alone.
+
 **Who closes the browser.** A daemon and its Chrome are not children of Ultimate: they outlive a call, a page reload and
 a stopped preview. So the extension ends them itself.
 
@@ -126,9 +158,9 @@ npm test
 ```
 
 `check` parses every module. `test` covers the step-to-command mapping (including this UI's theme, init script and the
-`url` that opens first), the budget arithmetic, batch parsing, session naming and socket paths, screenshots' paths, and
-local installation. Neither type-checks the web SDK nor starts a browser: a real `browser` call and the rendered card
-must be checked on a running host.
+`url` that opens first), the budget arithmetic, batch parsing, session naming and socket paths, screenshots' paths,
+retiring a daemon another CLI version started, and local installation. Neither type-checks the web SDK nor starts a
+browser: a real `browser` call and the rendered card must be checked on a running host.
 
 ## License and attribution
 

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { childGroups, identify, readPidFile, runGroup, stopGroup } from './process-group.ts'
 
@@ -7,6 +7,8 @@ import { childGroups, identify, readPidFile, runGroup, stopGroup } from './proce
 export const stepTimeoutMs = 30_000
 /** How long the daemon probe after a timeout may take. */
 const probeTimeoutMs = 5_000
+/** How long asking the binary its own version may take: it prints one line and starts no daemon. */
+const versionTimeoutMs = 10_000
 /** Output the CLI may print before a call gives up on it: a snapshot of a huge app is hundreds of kilobytes, not megabytes. */
 const outputLimit = 8_000_000
 
@@ -147,19 +149,22 @@ export function parseBatch(stdout: string): { rows: BatchResult[]; failure?: str
   return { rows }
 }
 
+/** What stopping a session's recorded daemon came to: the browser groups that went with it, or why it stayed. */
+type DaemonStop = { browsers: number } | { problem: string }
+
 /**
  * Stop the daemon a session recorded, and the browser it started. A daemon's Chrome runs in groups of its own, so
  * stopping the daemon alone would leave a headless browser behind under a new parent: its groups are read first, then
- * both are stopped, each verified by the pid and start time recorded for it. Returns what to tell the caller.
+ * both are stopped, each verified by the pid and start time recorded for it. Undefined when no daemon is recorded.
  */
 async function stopDaemon(
   session: string,
   options: { home: string; cwd: string; pidFile: string },
-): Promise<string> {
+): Promise<DaemonStop | undefined> {
   const daemonPidFile = join(socketDir(options.home), `${session}.pid`)
   // An unreadable pid file is no recorded daemon: nothing to stop, and the next call launches one.
   const pid = await readPidFile(daemonPidFile).catch(() => undefined)
-  if (pid === undefined) return 'no daemon was recorded, so the next call starts one'
+  if (pid === undefined) return undefined
   const browsers = childGroups(pid)
   const stop = async (group: number) => {
     const file = `${options.pidFile}.stop-${group}`
@@ -172,9 +177,16 @@ async function stopDaemon(
     await stop(pid)
     for (const group of browsers) await stop(group)
   } catch (error) {
-    return `stopping its daemon failed: ${String(error)}`
+    return { problem: String(error) }
   }
-  return `its daemon was stopped with ${browsers.length} browser group(s): the next call opens a fresh browser, and a login in the old one is gone`
+  return { browsers: browsers.length }
+}
+
+/** A daemon stop, worded for a message that already says why the daemon is going. */
+function stopped(stop: DaemonStop | undefined) {
+  if (stop === undefined) return 'no daemon was recorded, so the next call starts one'
+  if ('problem' in stop) return `stopping its daemon failed: ${stop.problem}`
+  return `its daemon was stopped with ${stop.browsers} browser group(s): the next call opens a fresh browser, and a login in the old one is gone`
 }
 
 /**
@@ -192,7 +204,7 @@ export async function recoverDaemon(
     budget: probeTimeoutMs,
   }).catch((error: unknown) => ({ timedOut: true, code: 1, stdout: '', stderr: String(error) }))
   if (!probe.timedOut && probe.code === 0) return 'the session still answered, so it was only slow'
-  return stopDaemon(session, options)
+  return stopped(await stopDaemon(session, options))
 }
 
 /**
@@ -211,7 +223,60 @@ export async function closeSession(
     () => undefined,
   )
   if (!run.timedOut && run.code === 0 && recorded === undefined) return 'closed'
-  return `closed: ${await stopDaemon(session, options)}`
+  return `closed: ${stopped(await stopDaemon(session, options))}`
+}
+
+/** A file's trimmed text, or undefined when there is none. */
+async function recordedText(path: string) {
+  try {
+    return (await readFile(path, 'utf8')).trim()
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+/** The version in the CLI's own `agent-browser 0.41.2` line. */
+export function versionIn(output: string) {
+  return /\b\d+\.\d+\.\d+[-\w.]*/.exec(output)?.[0]
+}
+
+/**
+ * Retire a daemon that another CLI version started, before a batch reaches it. An upgrade leaves the old daemon running
+ * and the CLI reuses it, so every batch then fails with `Unknown command: --omit-command`: the daemon knows the commands
+ * of the version that started it, not this binary's. So when the version the session recorded differs from the
+ * binary's, the daemon is stopped with the browser it started, and the batch launches a clean one. One attempt: a stop
+ * that fails is reported, never retried. Returns the note to show the caller, or undefined when there was nothing to
+ * retire.
+ */
+export async function retireStaleDaemon(
+  session: string,
+  options: { home: string; cwd: string; pidFile: string; signal?: AbortSignal },
+): Promise<string | undefined> {
+  const dir = socketDir(options.home)
+  // A daemon records nothing here without a pid file: no daemon is running, and the batch starts one.
+  const pid = await readPidFile(join(dir, `${session}.pid`)).catch(() => undefined)
+  if (pid === undefined) return undefined
+  const recorded = await recordedText(join(dir, `${session}.version`))
+  const binary = await runCli(['--version'], {
+    ...options,
+    pidFile: `${options.pidFile}.version`,
+    budget: versionTimeoutMs,
+  })
+    .then((run) => (run.code === 0 ? versionIn(run.stdout) : undefined))
+    .catch(() => undefined)
+  // Nothing to compare against: the daemon is left alone.
+  if (binary === undefined || recorded === binary) return undefined
+  // Every CLI that writes a version file writes it when its daemon starts: one that recorded none is older than this
+  // binary, so it is just as stale as one whose version differs.
+  const stop = await stopDaemon(session, options)
+  const versions = recorded
+    ? `the session's daemon was started by agent-browser ${recorded} and this binary is ${binary}`
+    : `the session's daemon recorded no version, so it was started by an agent-browser older than this binary's ${binary}`
+  if (stop === undefined) return `Note: ${versions}; it was gone already, so the steps start a fresh one.`
+  if ('problem' in stop)
+    return `Note: ${versions}, and stopping the stale daemon failed (${stop.problem}): a step may fail with an unknown-command error.`
+  return `Note: ${versions}, so the daemon and its browser were retired first: the steps run in a fresh browser, and a login from before is gone.`
 }
 
 /** A pid file of one call, in the directory the extension sweeps on open. */
