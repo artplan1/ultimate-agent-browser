@@ -1,6 +1,6 @@
 Drive a real Chrome through the [agent-browser](https://www.npmjs.com/package/agent-browser) CLI, from one browser
 that stays open per conversation. An Ultimate extension: it provides the `browser` tool and its card, and depends on no
-Ultimate checkout. Install the CLI once: `npm install -g agent-browser@0.41.2` (it ships its own Chrome).
+Ultimate checkout.
 
 ## One `browser` tool per project
 
@@ -15,19 +15,17 @@ of the two.
   composer, wait on Ultimate's own state), and `?conversation=` as a fresh page per call.
 
 The name is the tool name an agent already knows, and this extension takes the same shape — `url`, steps, `screenshot`,
-`viewport`, `close` — so a habit carries over. What it adds is a browser that stays open: cookies, tabs and logins
-survive between calls, so sign in once and keep working, and `@e1`-style refs from a snapshot stay usable in the next
-call until the page changes.
+`viewport`, `close` — so a habit carries over; what it adds is that `@e1`-style refs from a snapshot stay usable in the
+next call until the page changes.
 
-There is no separate `screenshot` tool here: a screenshot is a **step** inside `browser`
-(`{"screenshot": {"path": "shot.png"}}`), with the `viewport` step setting the size and the call's `theme` setting the
-color scheme. One tool is the whole extension.
+There is no separate `screenshot` tool here: a screenshot is a **step** inside `browser`, with the `viewport` step
+setting the size and the call's `theme` setting the color scheme. One tool is the whole extension.
 
 ## Install
 
 Requires [Ultimate](https://github.com/HazAT/ultimate), Node 26+, and the `agent-browser` CLI on the Ultimate server's
-PATH (`npm install -g agent-browser@0.41.2`, or `ULTIMATE_AGENT_BROWSER` naming another binary). Not verified on
-Windows: process-group cancellation assumes a Unix-like host.
+PATH (`npm install -g agent-browser@0.41.2`, or `ULTIMATE_AGENT_BROWSER` naming another binary). macOS and Linux only:
+it runs the CLI under `/bin/sh` and reads the process table with `/bin/ps`.
 
 ```bash
 git clone <this repository> ultimate-agent-browser
@@ -56,8 +54,9 @@ while the elements do, so snapshot again after navigating.
 
 Steps: `open`, `snapshot` (`interactive` by default, plus `scope`, `depth`, `compact`), `click`, `fill` `[ref, text]`,
 `press`, `find` (`by`/`value`/`action`, optional `text`, `name`, `exact` — a semantic locator when there is no ref),
-`wait` (exactly one of `selector`, `text`, `url`, `load`, `fn` or `ms`), `eval`, `screenshot` (`path`, `fullPage`),
-`viewport` `[width, height]`, and `close` (ends the session, logins included).
+`wait` (exactly one of `selector` with `state`, `text`, `url`, `load`, `fn` or `ms`, plus `timeoutMs`; `load` is
+`load`, `domcontentloaded` or `networkidle`), `eval`, `screenshot` (`path`, `fullPage`), `viewport`
+`[width, height]`, and `close` (ends the session, logins included).
 
 **Every step is an object, and `snapshot` and `wait` describe *how*, so each takes an object even when it is empty.**
 This is where habits from Ultimate's built-in `browser` tool break: `{"snapshot": true}` and `{"wait": {"load": true}}`
@@ -70,10 +69,6 @@ are rejected (`expected object, got boolean` / `expected string, got boolean`). 
 { "wait": { "selector": "#done", "state": "visible", "timeoutMs": 20000 } }
 ```
 
-`snapshot` takes `interactive` (default true), `compact`, `depth` and `scope`. `wait` takes exactly one of `selector`
-(with `state`), `text`, `url`, `load`, `fn` and `ms`, plus `timeoutMs`; `load` is `"load"`, `"domcontentloaded"` or
-`"networkidle"` — a string, never a boolean.
-
 **A page that mounts after load.** `{ "snapshot": {} }` straight after `open` can legitimately return 0 refs: a
 Next-style app hydrates after the page's `load` event, so the accessibility tree is still empty. Wait for the network to
 settle before the first snapshot:
@@ -84,8 +79,8 @@ settle before the first snapshot:
 
 A call returns the page title and URL, a line per step with what it returned, the PNG's path, the console and page
 errors the call provoked, and the last snapshot's tree for the refs it refers to. It ends with a screenshot unless
-`screenshot: false`; `path` names where that PNG goes (it must end in `.png` and resolves against the conversation's
-cwd; without it the PNG goes to `$ULTIMATE_HOME/screenshots`).
+`screenshot: false` or a `close` step leaves no page to capture; `path` names where that PNG goes (it must end in `.png`
+and resolves against the conversation's cwd; without it the PNG goes to `$ULTIMATE_HOME/screenshots`).
 
 A UI at phone width, in both themes:
 
@@ -134,9 +129,9 @@ a stopped preview. So the extension ends them itself.
 - A `close` step ends the session. A call that closes a browser appends no reads of its own (no title, url, console or
   final screenshot): each of those would open a fresh browser to answer. Then the CLI's daemon exits with it.
 - When the host closes, every session this host drove is closed the same way, under the same budget.
-- A daemon that does not answer, or that `close` left running, is stopped by the pid it recorded, and so are the process
-  groups its Chrome runs in — a browser started by a daemon has groups of its own, and stopping the daemon alone would
-  leave a headless Chrome behind under a new parent. That fallback is what a wedged daemon gets.
+- A daemon that does not answer, or that `close` left running, is stopped by the pid it recorded, together with the
+  process groups its Chrome runs in: a browser started by a daemon has groups of its own, so stopping the daemon alone
+  would leave a headless Chrome behind under a new parent.
 - Its socket directory is removed once no daemon is recorded in it.
 
 A host restart — or a reload of this extension, which the host runs on each of its files changing — therefore ends the
