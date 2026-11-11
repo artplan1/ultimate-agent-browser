@@ -4,6 +4,7 @@
   "private": true,
   "description": "A browser that stays open per conversation for Ultimate's agents, driven by the agent-browser CLI.",
   "license": "MIT",
+  "repository": "github:artplan1/ultimate-agent-browser",
   "type": "module",
   "scripts": {
     "check": "node --check server.ts && node --check commands.ts && node --check cli.ts && node --check process-group.ts && node --check shots.ts && node --check steps.ts && node --check install.ts",
