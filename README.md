@@ -43,6 +43,10 @@ emulation, or frames and dialogs: those are the agent-browser CLI's own commands
 Switch per project in `settings.json`: `"extensions": { "disable": ["browser"] }` for this one, `["agent-browser"]`
 for the built-in (see [Settings](#settings)).
 
+An agent definition that lists its tools explicitly keeps only those: Ultimate's own `@ultimate` does, so it never sees
+any browser tool until a project adds one with an overlay (`.ultimate/agents/ultimate.md` with `addTools: [browser]`).
+Coordinators, workers and branches inherit the host's tools and need nothing.
+
 ## Install
 
 Requires [Ultimate](https://github.com/HazAT/ultimate), Node 26+, and the `agent-browser` CLI on the Ultimate server's
