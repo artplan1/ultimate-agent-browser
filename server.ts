@@ -6,9 +6,11 @@ import { sweepPidFiles } from './process-group.ts'
 import {
   callBudget,
   callSteps,
+  cliResult,
   mediaCommand,
   screenshotFile,
   stepCommand,
+  stepFailure,
   stepSummary,
   themeApplySource,
   themeInitSource,
@@ -172,6 +174,7 @@ export default function agentBrowserExtension(host: Host) {
           'Drive a real Chrome through the agent-browser CLI, in a browser that stays open between calls of this conversation: `url` or an `open` step loads a page, `snapshot` returns its accessibility tree with @e1-style refs, and `click`, `fill` and `press` act on those refs. Cookies, tabs and logins persist from one call to the next, so sign in once and keep working; `close` ends the session and its logins.',
           'Every step is an object, and `snapshot` and `wait` describe how, so each takes an object, never a boolean: `{"snapshot": {}}` snapshots the page, with optional `interactive`, `compact`, `depth` and `scope`, and `{"wait": {"load": "networkidle"}}` waits for a load event, with exactly one of `selector`, `text`, `url`, `load`, `fn` or `ms` per wait; `load` is `load`, `domcontentloaded` or `networkidle`, so `{"snapshot": true}` and `{"wait": {"load": true}}` are rejected.',
           'Screenshots are a step, not a tool of their own: a `screenshot` step saves a PNG at a `viewport` you set, with `theme` for one UI and other pages alike; a final screenshot is returned unless `screenshot: false`.',
+          'What the steps do not cover is a `cli` step: any agent-browser command and its arguments, run in this same session, such as `{"cli": ["network", "requests"]}`, `{"cli": ["cookies", "get"]}`, `{"cli": ["tab", "list"]}` or `{"cli": ["upload", "#file", "a.pdf"]}`. Tabs and windows, network and HAR, cookies and storage, file upload and download, PDF and video, device emulation, frames and dialogs are the CLI’s own; its whole surface is `agent-browser skills get core --ref commands` and https://agent-browser.dev. A `cli` command that fails stops the call like any step, and one that succeeds prints its answer under its step line. The call adds its own session and `--json`, so a `cli` step that passes `--session`, `--namespace`, `--executable-path` or `--json` is refused rather than obeyed.',
           'Steps run in order in one batch and stop at the first failure; each times out after 30 s (timeoutMs). Refs stay valid until the page changes, so snapshot again after navigating; an app that mounts after load (Next-style) can return 0 refs to a snapshot straight after `open`, so wait for `networkidle` before the first snapshot.',
         ].join(' '),
         // Two calls must not drive one session at once: a round of them is one browser script.
@@ -216,7 +219,9 @@ export default function agentBrowserExtension(host: Host) {
             const initScript = steps.some((step) => 'open' in step)
               ? await themeInitScript(host.home)
               : undefined
-            const stated = steps.some((step) => 'close' in step)
+            const stated = steps.some(
+              (step) => 'close' in step || ('cli' in step && step.cli[0] === 'close'),
+            )
             const planned: Planned[] = []
             const plan = (key: string, command: string[]) => planned.push({ key, command })
             const stepOptions = {
@@ -279,11 +284,18 @@ export default function agentBrowserExtension(host: Host) {
               const row = result(`step ${position}`)
               if (!row) break
               if (!row.success) {
-                stepError = row.error ?? 'failed'
+                stepError = stepFailure(step, row.error)
                 outcomes.push(`Step ${position + 1}: ${stepError}`)
                 break
               }
-              outcomes.push(`Step ${position + 1}: OK ${stepSummary(step, row.result)}`)
+              outcomes.push(
+                `Step ${position + 1}: ${['OK', stepSummary(step, row.result)].filter(Boolean).join(' ')}`,
+              )
+              // A raw command's answer, in full, directly under its step line.
+              if ('cli' in step) {
+                const answer = cliResult(row.result)
+                if (answer !== undefined) outcomes.push(answer)
+              }
               if ('open' in step) opened = { title: field(row, 'title'), url: field(row, 'url') }
               if ('snapshot' in step && typeof row.result?.snapshot === 'string') {
                 const count = Object.keys((row.result.refs ?? {}) as Record<string, unknown>).length

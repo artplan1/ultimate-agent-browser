@@ -134,6 +134,13 @@ export const webStep = union([
     }),
   }),
   obj({
+    cli: arr(str(), {
+      minItems: 1,
+      description:
+        'Any agent-browser command and its arguments, run in this session: `["network", "requests"]`, `["cookies", "get"]`, `["tab", "list"]`, `["upload", "#file", "a.pdf"]`. It is the way to everything the steps above do not cover. The call adds its own session and `--json`, so `--session`, `--namespace`, `--executable-path` and `--json` are refused.',
+    }),
+  }),
+  obj({
     close: lit(true, { description: 'Close the browser and drop its state, logins included.' }),
   }),
 ])

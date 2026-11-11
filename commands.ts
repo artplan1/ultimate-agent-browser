@@ -64,6 +64,48 @@ export function themeApplySource(theme: 'light' | 'dark', ownOrigin: string) {
 /** The color scheme every page of this call gets, before any page is opened. */
 export const mediaCommand = (theme: 'light' | 'dark') => ['set', 'media', theme]
 
+/**
+ * Flags a raw `cli` step may not pass: they would leave this conversation's session (`--session`), its daemon's socket
+ * directory (`--namespace`), the browser this host installed (`--executable-path`) or the `--json` the batch reads
+ * (`--json`). Refused, never stripped: a step that asked for them must not quietly do something else.
+ */
+const reservedCliFlags = ['--session', '--namespace', '--executable-path', '--json']
+
+/** A raw step's own command line, refused when it would take the call out of its session, browser or json output. */
+function cliCommand(args: readonly string[]) {
+  if (args.length === 0)
+    throw new Error(
+      'A cli step takes an agent-browser command and its arguments, such as ["network", "requests"]',
+    )
+  for (const arg of args)
+    for (const flag of reservedCliFlags)
+      if (arg === flag || arg.startsWith(`${flag}=`))
+        throw new Error(
+          `A cli step may not pass ${flag}: the tool decides it for the whole call (its session, socket directory, browser and --json output). Drop it and pass only the command; everything else the CLI offers is allowed.`,
+        )
+  return args
+}
+
+/**
+ * What a raw cli step returned, as the output shows it under the step's line: the command's own answer, pretty-printed,
+ * without the launch bookkeeping the CLI repeats on every row of a batch.
+ */
+export function cliResult(result: Record<string, unknown> | undefined) {
+  if (result === undefined) return undefined
+  const answer = { ...result }
+  delete answer.lifecycle
+  return Object.keys(answer).length === 0 ? undefined : JSON.stringify(answer, null, 2)
+}
+
+/**
+ * Why a step failed, as its outcome line says it. A raw cli step names the command it ran, because the call runs several
+ * steps and the CLI's words alone do not say which one it was.
+ */
+export function stepFailure(step: WebStep, error?: string) {
+  if ('cli' in step) return `${step.cli.join(' ')} failed: ${error ?? 'failed'}`
+  return error ?? 'failed'
+}
+
 /** The steps one call runs: a `url` opens first, the way the built-in browser tool's url does. */
 export function callSteps(url: string | undefined, steps: readonly WebStep[]): WebStep[] {
   return url === undefined ? [...steps] : [{ open: url }, ...steps]
@@ -164,6 +206,7 @@ export function stepCommand(
   }
   if ('viewport' in step)
     return ['set', 'viewport', String(step.viewport[0]), String(step.viewport[1])]
+  if ('cli' in step) return [...cliCommand(step.cli)]
   return ['close']
 }
 
@@ -186,5 +229,7 @@ export function stepSummary(step: WebStep, result: Record<string, unknown> = {})
   if ('eval' in step) return JSON.stringify(result.result) ?? 'undefined'
   if ('screenshot' in step) return typeof result.path === 'string' ? result.path : ''
   if ('viewport' in step) return `${step.viewport[0]}×${step.viewport[1]}`
+  // A raw step's answer is the block under its line, not a summary of it.
+  if ('cli' in step) return ''
   return 'closed'
 }

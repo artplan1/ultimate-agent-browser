@@ -71,6 +71,9 @@ function describe(step: Step) {
   )
   const [action, value] = entries[0] ?? ['?', '']
   if (action === 'snapshot' && value && typeof value === 'object') return { action, shown: '' }
+  // A raw cli step is its own command line, not a list of arguments into something.
+  if (action === 'cli' && Array.isArray(value))
+    return { action, shown: value.map((item) => String(item)).join(' ') }
   const shown = Array.isArray(value)
     ? value.map((item) => JSON.stringify(item)).join(' ← ')
     : typeof value === 'string'

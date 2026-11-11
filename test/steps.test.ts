@@ -4,9 +4,11 @@ import { parseBatch, sessionName, socketDir } from '../cli.ts'
 import {
   callBudget,
   callSteps,
+  cliResult,
   screenshotFile,
   stepBudget,
   stepCommand,
+  stepFailure,
   stepSummary,
   themeApplySource,
   themeInitSource,
@@ -201,6 +203,43 @@ test('refuses output that is not a batch, naming what came instead', () => {
   assert.throws(() => parseBatch('not json at all'), /output is not JSON: not json at all/)
   assert.throws(() => parseBatch('{"some":"object"}'), /is not a batch/)
   assert.throws(() => parseBatch('[{"result":{}}]'), /has no outcome at 0/)
+})
+
+test('runs any agent-browser command as a raw step, and refuses the flags the tool owns', () => {
+  // The command is its own argv: the batch adds this call's --session, --json and budget, nothing else.
+  assert.deepEqual(commands({ cli: ['network', 'requests'] }), ['network', 'requests'])
+  assert.deepEqual(commands({ cli: ['upload', '#file', 'shots/a.pdf'] }), [
+    'upload',
+    '#file',
+    'shots/a.pdf',
+  ])
+  assert.deepEqual(commands({ cli: ['cookies', 'get'] }), ['cookies', 'get'])
+  for (const flag of ['--session', '--namespace', '--executable-path', '--json']) {
+    assert.throws(() => commands({ cli: ['tab', 'list', flag] }), new RegExp(`may not pass ${flag}:`))
+    assert.throws(() => commands({ cli: [flag, 'tab', 'list'] }), /may not pass/)
+    assert.throws(() => commands({ cli: ['open', 'https://a/', `${flag}=x`] }), /may not pass/)
+  }
+  assert.throws(() => commands({ cli: [] }), /takes an agent-browser command and its arguments/)
+})
+
+test('shows a raw step’s answer under its line and names the command when it fails', () => {
+  assert.equal(stepSummary({ cli: ['network', 'requests'] }, { requests: [] }), '')
+  // The launch bookkeeping every batch row carries is noise next to the command's own answer.
+  assert.equal(
+    cliResult({ lifecycle: { launched: true, reused: false }, cookies: [{ name: 'a' }] }),
+    JSON.stringify({ cookies: [{ name: 'a' }] }, null, 2),
+  )
+  assert.equal(cliResult({ lifecycle: { launched: true } }), undefined)
+  assert.equal(cliResult(undefined), undefined)
+  assert.equal(cliResult({ closed: true, saveStatus: 'not_attempted' }) !== undefined, true)
+
+  assert.equal(
+    stepFailure({ cli: ['network', 'requests'] }, 'Unknown command: network'),
+    'network requests failed: Unknown command: network',
+  )
+  assert.equal(stepFailure({ cli: ['tab', 'list'] }), 'tab list failed: failed')
+  // A step of its own keeps the CLI's words alone, as its action names it.
+  assert.equal(stepFailure({ click: '@e9' }, 'Element not found: @e9'), 'Element not found: @e9')
 })
 
 test('summarises what a step returned', () => {
