@@ -117,6 +117,12 @@ export const webStep = union([
             'Where to save the PNG, relative to your cwd; default: a new file in the home.',
         }),
       ),
+      selector: opt(
+        str({
+          description:
+            'CSS selector of one element to capture instead of the page; `fullPage` does not apply then.',
+        }),
+      ),
       fullPage: opt(bool()),
     }),
   }),

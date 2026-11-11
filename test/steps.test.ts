@@ -53,6 +53,17 @@ test('maps a browse step to its agent-browser command', () => {
     '/work/shots/a.png',
     '--full',
   ])
+  // A selector captures that element: the CLI takes it before the path, and a full page would replace it.
+  assert.deepEqual(commands({ screenshot: { selector: '#main', path: 'shots/a.png' } }), [
+    'screenshot',
+    '#main',
+    '/work/shots/a.png',
+  ])
+  assert.deepEqual(commands({ screenshot: { selector: '#main', path: 'a.png', fullPage: true } }), [
+    'screenshot',
+    '#main',
+    '/work/a.png',
+  ])
   assert.deepEqual(commands({ viewport: [390, 844] }), ['set', 'viewport', '390', '844'])
   assert.deepEqual(commands({ close: true }), ['close'])
 })

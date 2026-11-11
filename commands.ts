@@ -152,12 +152,16 @@ export function stepCommand(
     return ['wait', '--fn', fn!, ...limit]
   }
   if ('eval' in step) return ['eval', '-b', Buffer.from(step.eval).toString('base64')]
-  if ('screenshot' in step)
+  if ('screenshot' in step) {
+    const { path, selector, fullPage } = step.screenshot
     return [
       'screenshot',
-      screenshotFile(options.home, options.cwd, step.screenshot.path),
-      ...(step.screenshot.fullPage ? ['--full'] : []),
+      ...(selector === undefined ? [] : [selector]),
+      screenshotFile(options.home, options.cwd, path),
+      // One element's own size is the shot: a full page would replace it, as the built-in tool's selector does.
+      ...(fullPage && selector === undefined ? ['--full'] : []),
     ]
+  }
   if ('viewport' in step)
     return ['set', 'viewport', String(step.viewport[0]), String(step.viewport[1])]
   return ['close']
