@@ -100,6 +100,7 @@ test('maps every wait mode, each with the step’s own limit', () => {
 test('refuses a step that does not say what to do', () => {
   assert.throws(() => commands({ wait: {} }), /exactly one of selector, text, url, load, fn or ms/)
   assert.throws(() => commands({ wait: { text: 'a', url: '**/b' } }), /not several/)
+  assert.throws(() => commands({ wait: { ms: 500, timeoutMs: 3000 } }), /takes no timeoutMs/)
   assert.throws(() => commands({ find: { by: 'label', value: 'Email', action: 'fill' } }), /needs text/)
   assert.throws(() => commands({ screenshot: { path: 'shots/a.jpg' } }), /must end in \.png/)
 })

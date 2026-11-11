@@ -11,13 +11,12 @@ export const THEME_PARAM = 'ultimate-theme'
 
 /**
  * The PNG's absolute path: `path` against the conversation's cwd, else a new file in the home's screenshots.
- * `hint` says where a page goes in the calling tool, for a model that passed one as `path`.
  */
-export function screenshotFile(home: string, cwd: string, path?: string, hint = '') {
+export function screenshotFile(home: string, cwd: string, path?: string) {
   if (path === undefined) return join(home, 'screenshots', `${Date.now()}-${randomUUID()}.png`)
   if (!path.endsWith('.png'))
     throw new Error(
-      `path is where the PNG is saved and must end in .png, not ${JSON.stringify(path)}${hint}`,
+      `path is where the PNG is saved and must end in .png, not ${JSON.stringify(path)}`,
     )
   return resolve(cwd, path)
 }
@@ -141,6 +140,8 @@ export function stepCommand(
       throw new Error(
         `A wait step takes exactly one of selector, text, url, load, fn or ms, not ${modes.length === 0 ? 'none of them' : 'several'}`,
       )
+    if (ms !== undefined && timeoutMs !== undefined)
+      throw new Error('A wait step with ms waits exactly that long, so it takes no timeoutMs')
     if (ms !== undefined) return ['wait', String(ms)]
     const limit = ['--timeout', String(timeoutMs ?? options.timeoutMs)]
     if (selector !== undefined)

@@ -88,7 +88,7 @@ function Shot({ call, parsed }: { call: ToolCallView; parsed: ReturnType<typeof 
 /** A step's action and its argument: the first field that is not a modifier. */
 function describe(step: Step) {
   const entries = Object.entries(step).filter(
-    ([key]) => !['conversation', 'timeoutMs', 'fullPage', 'state'].includes(key),
+    ([key]) => !['timeoutMs', 'fullPage', 'state'].includes(key),
   )
   const [action, value] = entries[0] ?? ['?', '']
   if (action === 'snapshot' && value && typeof value === 'object') return { action, shown: '' }
@@ -112,24 +112,12 @@ function Steps({
 }) {
   if (steps.length === 0) return null
   const finished = status === 'done' || status === 'error'
-  // While running, the output names the step being run: `Step n: {…}`; when done, every step has an outcome.
-  const reached = Math.max(0, ...parsed.steps.keys())
   return (
     <ToolSection label="Steps">
       {steps.map((step, index) => {
         const number = index + 1
         const outcome = finished ? parsed.steps.get(number) : undefined
-        const state = finished
-          ? !outcome
-            ? 'skipped'
-            : outcome.startsWith('OK')
-              ? 'ok'
-              : 'failed'
-          : number < reached
-            ? 'ok'
-            : number === reached && status === 'running'
-              ? 'running'
-              : 'skipped'
+        const state = !outcome ? 'skipped' : outcome.startsWith('OK') ? 'ok' : 'failed'
         const { action, shown } = describe(step)
         const value = outcome?.startsWith('OK ') ? outcome.slice(3) : undefined
         return (
@@ -142,12 +130,10 @@ function Steps({
                   ? 'text-success'
                   : state === 'failed'
                     ? 'text-error'
-                    : state === 'running'
-                      ? 'animate-pulse-dot text-brand'
-                      : 'text-muted-foreground/50',
+                    : 'text-muted-foreground/50',
               )}
             >
-              {state === 'ok' ? '✓' : state === 'failed' ? '✗' : state === 'running' ? '●' : '·'}
+              {state === 'ok' ? '✓' : state === 'failed' ? '✗' : '·'}
             </span>
             <span className="w-14 shrink-0 text-foreground/90">{action}</span>
             <span className="min-w-0 flex-1">

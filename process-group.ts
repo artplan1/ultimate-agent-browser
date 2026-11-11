@@ -13,9 +13,9 @@ import type { Readable, Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 /** The program cannot start until its pid is recorded; a parent that dies before go gives EOF instead. */
-export const handshake = 'read -r _ || exit 1; exec "$0" "$@"'
+const handshake = 'read -r _ || exit 1; exec "$0" "$@"'
 
-export type GroupProcess = ChildProcessByStdio<Writable, Readable, Readable>
+type GroupProcess = ChildProcessByStdio<Writable, Readable, Readable>
 /**
  * A process group this process started. `ended` resolves once the leader has exited and nothing of its group is left:
  * `true`, or `false` when a member survived KILL. `closed` resolves when its output pipes have closed.
@@ -170,7 +170,7 @@ async function gone(pid: number, ms: number) {
  * exits, whatever it left in its group is stopped too (TERM, KILL after `grace` ms): nothing of a group outlives its
  * leader. A failed pid write throws; the held process then reads EOF and exits without running.
  */
-export function spawnGroup(
+function spawnGroup(
   program: string,
   args: string[],
   options: Omit<SpawnOptions, 'detached' | 'stdio'> & {
@@ -223,7 +223,7 @@ export function spawnGroup(
 }
 
 /** A file's trimmed text, or undefined when there is none. */
-async function text(path: string) {
+export async function readText(path: string) {
   try {
     return (await readFile(path, 'utf8')).trim()
   } catch (error) {
@@ -234,7 +234,7 @@ async function text(path: string) {
 
 /** The pid a pid file names, or undefined when there is none. Its leader's start time sits next to it, in `.start`. */
 export async function readPidFile(path: string) {
-  const value = await text(path)
+  const value = await readText(path)
   if (value === undefined) return undefined
   const pid = Number(value)
   if (!Number.isSafeInteger(pid) || pid < 1) throw new Error(`Invalid pid file ${path}`)
@@ -268,7 +268,7 @@ export async function stopGroup(
       throw new Error(`Process group ${pid} did not exit`)
   } else {
     const recorded = pidFile && (await readPidFile(pidFile)) === pid
-    const start = recorded ? await text(`${pidFile}.start`) : undefined
+    const start = recorded ? await readText(`${pidFile}.start`) : undefined
     const ours =
       recorded &&
       (start === undefined
@@ -286,7 +286,7 @@ export async function stopGroup(
  * Wait until `group`'s output pipes close. A process outside the group (`setsid`) can hold them open forever, so after
  * `ms` they are closed from this end.
  */
-export async function closeOutput(group: Pick<Group, 'child' | 'closed'>, ms = 1000) {
+async function closeOutput(group: Pick<Group, 'child' | 'closed'>, ms = 1000) {
   if (
     (await within(
       group.closed.then(() => true),

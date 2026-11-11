@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { childGroups, identify, readPidFile, runGroup, stopGroup } from './process-group.ts'
+import {
+  childGroups,
+  identify,
+  readPidFile,
+  readText,
+  runGroup,
+  stopGroup,
+} from './process-group.ts'
 
 /** One command's limit unless the call passes timeoutMs; a wait step's own budget can raise it. */
 export const stepTimeoutMs = 30_000
@@ -13,7 +20,7 @@ const versionTimeoutMs = 10_000
 const outputLimit = 8_000_000
 
 /** The CLI to run; ULTIMATE_AGENT_BROWSER pins another path than the installed one. */
-export const binary = () => process.env.ULTIMATE_AGENT_BROWSER ?? 'agent-browser'
+const binary = () => process.env.ULTIMATE_AGENT_BROWSER ?? 'agent-browser'
 
 /**
  * The session one conversation drives. The same conversation id exists in other projects and in a preview of this one,
@@ -33,6 +40,13 @@ export function sessionName(conversationId: number, home: string, projectRoot: s
 export const socketDir = (home: string) =>
   join('/tmp', `ultimate-ab-${createHash('sha256').update(home).digest('hex').slice(0, 8)}`)
 
+/** The pid file a session's daemon records, next to its socket. */
+const daemonPidFile = (home: string, session: string) =>
+  join(socketDir(home), `${session}.pid`)
+
+/** A recorded pid, or undefined: a missing or unreadable file is no recorded pid. */
+const recordedPid = (path: string) => readPidFile(path).catch(() => undefined)
+
 export type CliRun = { code: number; stdout: string; stderr: string; timedOut: boolean }
 
 /**
@@ -49,8 +63,6 @@ export async function runCli(
     budget: number
     input?: string
     signal?: AbortSignal
-    /** More environment than the caller's: a session's own init scripts, for instance. */
-    env?: Record<string, string>
   },
 ): Promise<CliRun> {
   const controller = new AbortController()
@@ -70,11 +82,7 @@ export async function runCli(
       pidFile: options.pidFile,
       signal,
       grace: 1000,
-      env: {
-        ...process.env,
-        AGENT_BROWSER_SOCKET_DIR: socketDir(options.home),
-        ...options.env,
-      },
+      env: { ...process.env, AGENT_BROWSER_SOCKET_DIR: socketDir(options.home) },
       ...(options.input === undefined ? {} : { input: options.input }),
       onOutput(text, stream) {
         const sofar = stream === 'stdout' ? stdout : stderr
@@ -161,9 +169,8 @@ async function stopDaemon(
   session: string,
   options: { home: string; cwd: string; pidFile: string },
 ): Promise<DaemonStop | undefined> {
-  const daemonPidFile = join(socketDir(options.home), `${session}.pid`)
   // An unreadable pid file is no recorded daemon: nothing to stop, and the next call launches one.
-  const pid = await readPidFile(daemonPidFile).catch(() => undefined)
+  const pid = await recordedPid(daemonPidFile(options.home, session))
   if (pid === undefined) return undefined
   const browsers = childGroups(pid)
   const stop = async (group: number) => {
@@ -219,21 +226,9 @@ export async function closeSession(
     ...options,
     budget: options.budget ?? 10_000,
   }).catch(() => ({ code: 1, stdout: '', stderr: '', timedOut: true }))
-  const recorded = await readPidFile(join(socketDir(options.home), `${session}.pid`)).catch(
-    () => undefined,
-  )
+  const recorded = await recordedPid(daemonPidFile(options.home, session))
   if (!run.timedOut && run.code === 0 && recorded === undefined) return 'closed'
   return `closed: ${stopped(await stopDaemon(session, options))}`
-}
-
-/** A file's trimmed text, or undefined when there is none. */
-async function recordedText(path: string) {
-  try {
-    return (await readFile(path, 'utf8')).trim()
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-    throw error
-  }
 }
 
 /** The version in the CLI's own `agent-browser 0.41.2` line. */
@@ -255,9 +250,9 @@ export async function retireStaleDaemon(
 ): Promise<string | undefined> {
   const dir = socketDir(options.home)
   // A daemon records nothing here without a pid file: no daemon is running, and the batch starts one.
-  const pid = await readPidFile(join(dir, `${session}.pid`)).catch(() => undefined)
+  const pid = await recordedPid(daemonPidFile(options.home, session))
   if (pid === undefined) return undefined
-  const recorded = await recordedText(join(dir, `${session}.version`))
+  const recorded = await readText(join(dir, `${session}.version`))
   const binary = await runCli(['--version'], {
     ...options,
     pidFile: `${options.pidFile}.version`,

@@ -74,7 +74,6 @@ async function runBatch(
     pidFile: string
     budget: number
     signal?: AbortSignal
-    env?: Record<string, string>
   },
 ) {
   const run = await runCli(
@@ -86,7 +85,6 @@ async function runBatch(
       budget: options.budget,
       input: JSON.stringify(planned.map((item) => item.command)),
       signal: options.signal,
-      env: options.env,
     },
   )
   if (run.timedOut) {
@@ -171,10 +169,9 @@ export default function agentBrowserExtension(host: Host) {
         name: 'browser',
         description: [
           'Drive a real Chrome through the agent-browser CLI, in a browser that stays open between calls of this conversation: `url` or an `open` step loads a page, `snapshot` returns its accessibility tree with @e1-style refs, and `click`, `fill` and `press` act on those refs. Cookies, tabs and logins persist from one call to the next, so sign in once and keep working; `close` ends the session and its logins.',
-          'It takes the shape an agent already knows from a browser tool — `url`, steps, `screenshot`, `viewport`, `close` — with the difference that the browser is kept, so refs and logins survive between calls.',
           'Every step is an object, and `snapshot` and `wait` describe how, so each takes an object, never a boolean: `{"snapshot": {}}` snapshots the page, with optional `interactive`, `compact`, `depth` and `scope`, and `{"wait": {"load": "networkidle"}}` waits for a load event, with exactly one of `selector`, `text`, `url`, `load`, `fn` or `ms` per wait; `load` is `load`, `domcontentloaded` or `networkidle`, so `{"snapshot": true}` and `{"wait": {"load": true}}` are rejected.',
           'Screenshots are a step, not a tool of their own: a `screenshot` step saves a PNG at a `viewport` you set, with `theme` for one UI and other pages alike; a final screenshot is returned unless `screenshot: false`.',
-          'Steps run in order in one batch and stop at the first failure; each times out after 30 s (timeoutMs). Refs stay valid until the page changes, so snapshot again after navigating; an app that mounts after load (Next-style) can return 0 refs to a snapshot straight after `open`, so wait with `{"wait": {"load": "networkidle"}}` before the first snapshot.',
+          'Steps run in order in one batch and stop at the first failure; each times out after 30 s (timeoutMs). Refs stay valid until the page changes, so snapshot again after navigating; an app that mounts after load (Next-style) can return 0 refs to a snapshot straight after `open`, so wait for `networkidle` before the first snapshot.',
         ].join(' '),
         // Two calls must not drive one session at once: a round of them is one browser script.
         executionMode: 'sequential',
@@ -221,38 +218,31 @@ export default function agentBrowserExtension(host: Host) {
             const stated = steps.some((step) => 'close' in step)
             const planned: Planned[] = []
             const plan = (key: string, command: string[]) => planned.push({ key, command })
+            const stepOptions = {
+              home: host.home,
+              cwd,
+              timeoutMs: stepMs,
+              base,
+              ...(initScript === undefined ? {} : { initScript }),
+              ...(args.theme === undefined ? {} : { theme: args.theme }),
+            }
+            // The theme applies right before a shot: this UI writes its stored preference back on every change.
+            const applyTheme = (key: string, theme: 'light' | 'dark') =>
+              plan(
+                key,
+                stepCommand({ eval: themeApplySource(theme, new URL(base).origin) }, stepOptions),
+              )
             // This call's console and page errors only: the session keeps them otherwise.
             plan('console-clear', ['console', '--clear'])
             plan('errors-clear', ['errors', '--clear'])
             if (args.theme) plan('media', mediaCommand(args.theme))
             for (const [index, step] of steps.entries()) {
-              // The theme applies right before the shot: this UI writes its stored preference back on every change.
-              if (args.theme && 'screenshot' in step)
-                plan(`theme ${index}`, [
-                  'eval',
-                  '-b',
-                  Buffer.from(themeApplySource(args.theme, new URL(base).origin)).toString('base64'),
-                ])
-              plan(
-                `step ${index}`,
-                stepCommand(step, {
-                  home: host.home,
-                  cwd,
-                  timeoutMs: stepMs,
-                  base,
-                  ...(initScript === undefined ? {} : { initScript }),
-                  ...(args.theme === undefined ? {} : { theme: args.theme }),
-                }),
-              )
+              if (args.theme && 'screenshot' in step) applyTheme(`theme ${index}`, args.theme)
+              plan(`step ${index}`, stepCommand(step, stepOptions))
             }
             if (capture && !stated) {
-              if (args.theme)
-                plan('capture-theme', [
-                  'eval',
-                  '-b',
-                  Buffer.from(themeApplySource(args.theme, new URL(base).origin)).toString('base64'),
-                ])
-              plan('capture', ['screenshot', capture])
+              if (args.theme) applyTheme('capture-theme', args.theme)
+              plan('capture', stepCommand({ screenshot: { path: capture } }, stepOptions))
             }
             // A closed browser has no page to read: the CLI would open a fresh one to answer these.
             if (!stated) {
