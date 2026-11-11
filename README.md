@@ -37,8 +37,10 @@ setting the size and the call's `theme` setting the color scheme. One tool is th
 | console and page errors | returned, frames named by their source map | returned, frames named by their source map for a page of this host or of this machine |
 | tools it adds | `browser` and `screenshot` | `browser` only |
 
-Neither has a step for tabs and windows, network inspection, file upload, cookies and storage, PDF and video, device
-emulation, or frames and dialogs: those are the agent-browser CLI's own commands, which this extension does not expose.
+Both offer the common loop, and neither grows a step for everything: tabs and windows, network inspection and HAR,
+cookies and storage, file upload and download, PDF and video, device emulation, frames and dialogs are reached here
+through one `cli` step, which runs any agent-browser command in the session. The CLI's full surface is at
+[agent-browser.dev](https://agent-browser.dev) and in `agent-browser skills get core --ref commands`.
 
 Switch per project in `settings.json`: `"extensions": { "disable": ["browser"] }` for this one, `["agent-browser"]`
 for the built-in (see [Settings](#settings)).
@@ -82,7 +84,16 @@ Steps: `open`, `snapshot` (`interactive` by default, plus `scope`, `depth`, `com
 `press`, `find` (`by`/`value`/`action`, optional `text`, `name`, `exact` — a semantic locator when there is no ref),
 `wait` (exactly one of `selector` with `state`, `text`, `url`, `load`, `fn` or `ms`, plus `timeoutMs`; `load` is
 `load`, `domcontentloaded` or `networkidle`), `eval`, `screenshot` (`path`, `selector`, `fullPage`), `viewport`
-`[width, height]`, and `close` (ends the session, logins included).
+`[width, height]`, `cli`, and `close` (ends the session, logins included).
+
+**`cli` is the escape hatch:** any agent-browser command and its arguments, run in the same session, so nothing the
+steps above lack is out of reach — `{"cli": ["network", "requests"]}`, `{"cli": ["cookies", "get"]}`,
+`{"cli": ["tab", "list"]}`, `{"cli": ["upload", "#file", "a.pdf"]}`, `{"cli": ["pdf", "page.pdf"]}`. The call adds
+its own session, its own `--json` and its own budget, so a `cli` step that passes `--session`, `--namespace`,
+`--executable-path` or `--json` is **refused by name**, never quietly ignored; everything else the CLI accepts is allowed.
+A command that fails stops the call like any step, naming the command and the CLI's words, and one that succeeds prints
+its answer under its step line. A `cli` step of `["close"]` counts as closing the browser, so the call reads nothing
+after it.
 
 **Every step is an object, and `snapshot` and `wait` describe *how*, so each takes an object even when it is empty.**
 This is where habits from Ultimate's built-in `browser` tool break: `{"snapshot": true}` and `{"wait": {"load": true}}`
@@ -185,10 +196,11 @@ npm test
 ```
 
 `check` parses every module. `test` covers the step-to-command mapping (including this UI's theme, init script, the
-`url` that opens first and a screenshot of one element), the budget arithmetic, batch parsing, session naming and
-socket paths, screenshots' paths, source maps of stack frames and the origins they are read from, the card's reading of
-a result, retiring a daemon another CLI version started, and local installation. Neither type-checks nor builds the web
-facet: a real `browser` call and the rendered card must be checked on a running host.
+`url` that opens first, a screenshot of one element and the raw `cli` step with the flags it refuses), the budget
+arithmetic, batch parsing, session naming and socket paths, screenshots' paths, source maps of stack frames and the
+origins they are read from, the card's reading of a result, retiring a daemon another CLI version started, and local
+installation. Neither type-checks nor builds the web facet: a real `browser` call and the rendered card must be checked
+on a running host.
 
 ## License and attribution
 
