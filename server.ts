@@ -26,6 +26,7 @@ import {
 } from './cli.ts'
 import type { BatchResult } from './cli.ts'
 import { thumbnail } from './shots.ts'
+import { fetchAssets, mapOrigin, sourceFrames } from './source-frames.ts'
 import { strEnum, webStep } from './steps.ts'
 
 /**
@@ -297,10 +298,10 @@ export default function agentBrowserExtension(host: Host) {
               text?: string
             }[])
               if (message.type === 'error' && typeof message.text === 'string')
-                errors.push(`Console error: ${message.text.split('\n')[0]}`)
+                errors.push(`Console error: ${message.text}`)
             for (const error of (result('errors')?.result?.errors ?? []) as { text?: string }[]) {
-              const line = error.text?.split('\n')[0]
-              if (line) errors.push(`Page error: ${line.replace(/^Uncaught /, '')}`)
+              const text = error.text?.replace(/^Uncaught /, '')
+              if (text) errors.push(`Page error: ${text}`)
             }
             // Not a step's failure: nothing ran, and the CLI says why. A retired daemon says why the versions differ.
             if (outcomes.length === 0)
@@ -312,6 +313,15 @@ export default function agentBrowserExtension(host: Host) {
               )
             const title = field(result('title'), 'title') ?? opened.title
             const url = field(result('url'), 'url') ?? opened.url
+            // Errors name source files and lines, as dev tools show them, not positions in a bundle: only for a page of
+            // this host or of this machine, never for a site whose errors could name any URL.
+            const origin = mapOrigin(url, base)
+            if (origin) {
+              const read = fetchAssets(origin)
+              const maps = new Map()
+              for (const [index, error] of errors.entries())
+                errors[index] = await sourceFrames(error, read, maps)
+            }
             const captured = args.screenshot === false ? undefined : result('capture')
             const shotPath =
               captured?.success && capture

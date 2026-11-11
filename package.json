@@ -7,8 +7,8 @@
   "repository": "github:artplan1/ultimate-agent-browser",
   "type": "module",
   "scripts": {
-    "check": "node --check server.ts && node --check commands.ts && node --check cli.ts && node --check process-group.ts && node --check shots.ts && node --check steps.ts && node --check install.ts",
-    "test": "node --test test/steps.test.ts test/daemon.test.ts test/install.test.ts",
+    "check": "node --check server.ts && node --check commands.ts && node --check cli.ts && node --check process-group.ts && node --check source-frames.ts && node --check output.ts && node --check shots.ts && node --check steps.ts && node --check install.ts",
+    "test": "node --test test/steps.test.ts test/source-frames.test.ts test/output.test.ts test/daemon.test.ts test/install.test.ts",
     "install:local": "node install.ts"
   },
   "engines": {

@@ -9,30 +9,9 @@ import {
 } from '@/components/ai/tool'
 import { cn, defineWebExtension, useToolDuration } from '@/sdk'
 import type { ToolCallView } from '@/sdk'
+import { parseOutput } from './output.ts'
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
-
-/** `Title: …`, `URL: …`, `PNG: …`, then outcomes (`Step n: OK …`, a failed `Step n: …`, `Console error: …`). */
-function parse(output: string) {
-  const lines = output.split('\n').filter(Boolean)
-  const value = (prefix: string) =>
-    lines.find((line) => line.startsWith(prefix))?.slice(prefix.length)
-  return {
-    title: value('Title: '),
-    url: value('URL: '),
-    png: value('PNG: '),
-    errors: lines.filter((line) => /^(Console|Page) error: /.test(line)),
-    steps: new Map(
-      lines.flatMap((line) => {
-        const match = /^Step (\d+): (.*)$/.exec(line)
-        return match ? [[Number(match[1]), match[2]] as const] : []
-      }),
-    ),
-    other: lines.filter(
-      (line) => !/^(Title|URL|PNG): |^Step \d+: |^(Console|Page) error: /.test(line),
-    ),
-  }
-}
 
 type Step = Record<string, unknown>
 
@@ -54,7 +33,7 @@ function Errors({ errors }: { errors: readonly string[] }) {
     <ToolSection label={`${errors.length} error${errors.length === 1 ? '' : 's'} while loading`}>
       {errors.map((error, index) => (
         // oxlint-disable-next-line react/no-array-index-key -- Loading errors are log lines and may repeat.
-        <div className="break-words text-error" key={index}>
+        <div className="break-words whitespace-pre-wrap text-error" key={index}>
           {error}
         </div>
       ))}
@@ -63,7 +42,7 @@ function Errors({ errors }: { errors: readonly string[] }) {
 }
 
 /** The screenshot as a thumbnail that opens full size, beside the page title and the PNG's path. */
-function Shot({ call, parsed }: { call: ToolCallView; parsed: ReturnType<typeof parse> }) {
+function Shot({ call, parsed }: { call: ToolCallView; parsed: ReturnType<typeof parseOutput> }) {
   const image = call.images[0]
   if (!image && !parsed.title && !parsed.png) return null
   return (
@@ -107,7 +86,7 @@ function Steps({
   status,
 }: {
   steps: readonly Step[]
-  parsed: ReturnType<typeof parse>
+  parsed: ReturnType<typeof parseOutput>
   status: ToolCallView['status']
 }) {
   if (steps.length === 0) return null
@@ -158,7 +137,7 @@ function Steps({
 
 function Browse({ call }: { call: ToolCallView }) {
   const duration = useToolDuration(call)
-  const parsed = parse(call.output)
+  const parsed = parseOutput(call.output)
   const steps = stepsOf(call)
   const failed = call.status === 'error'
   const theme = text(call.args.theme)
