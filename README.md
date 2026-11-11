@@ -21,6 +21,28 @@ next call until the page changes.
 There is no separate `screenshot` tool here: a screenshot is a **step** inside `browser`, with the `viewport` step
 setting the size and the call's `theme` setting the color scheme. One tool is the whole extension.
 
+### Which browser to reach for
+
+| | built-in `browser` + `screenshot` | this extension |
+| --- | --- | --- |
+| browser between calls | a fresh isolated page per call | one session per conversation: cookies, tabs and logins persist |
+| what a step addresses | a Playwright locator: CSS, or `text=`/`role=` syntax | an accessibility-tree ref (`@e1`) from `snapshot`, a CSS selector, or `find` by role, label, text, placeholder, testid, alt or title |
+| snapshot of the page | — | `snapshot`: the tree with refs, `scope`/`depth`/`compact` |
+| one element | `screenshot`'s `selector` | the `screenshot` step's `selector` |
+| full page | `screenshot`'s `fullPage` | the `screenshot` step's `fullPage` |
+| viewport | `screenshot`'s `width`/`height`, per shot | the `viewport` step, for the session |
+| waiting | `wait: <ms>` or `wait: <selector>` | `wait` for a selector (with `state`), text, url glob, `load` (`networkidle`), a JS predicate or ms |
+| several steps | one at a time, each reported as it runs | one batch, stopping at the first failure |
+| drive Ultimate itself | `send`/`until` on any Ultimate page, and `?conversation=` as a fresh page per call | a page's own URL only; no `send` or `until` |
+| console and page errors | returned, frames named by their source map | returned, frames named by their source map for a page of this host or of this machine |
+| tools it adds | `browser` and `screenshot` | `browser` only |
+
+Neither has a step for tabs and windows, network inspection, file upload, cookies and storage, PDF and video, device
+emulation, or frames and dialogs: those are the agent-browser CLI's own commands, which this extension does not expose.
+
+Switch per project in `settings.json`: `"extensions": { "disable": ["browser"] }` for this one, `["agent-browser"]`
+for the built-in (see [Settings](#settings)).
+
 ## Install
 
 Requires [Ultimate](https://github.com/HazAT/ultimate), Node 26+, and the `agent-browser` CLI on the Ultimate server's
@@ -55,7 +77,7 @@ while the elements do, so snapshot again after navigating.
 Steps: `open`, `snapshot` (`interactive` by default, plus `scope`, `depth`, `compact`), `click`, `fill` `[ref, text]`,
 `press`, `find` (`by`/`value`/`action`, optional `text`, `name`, `exact` — a semantic locator when there is no ref),
 `wait` (exactly one of `selector` with `state`, `text`, `url`, `load`, `fn` or `ms`, plus `timeoutMs`; `load` is
-`load`, `domcontentloaded` or `networkidle`), `eval`, `screenshot` (`path`, `fullPage`), `viewport`
+`load`, `domcontentloaded` or `networkidle`), `eval`, `screenshot` (`path`, `selector`, `fullPage`), `viewport`
 `[width, height]`, and `close` (ends the session, logins included).
 
 **Every step is an object, and `snapshot` and `wait` describe *how*, so each takes an object even when it is empty.**
@@ -80,7 +102,13 @@ settle before the first snapshot:
 A call returns the page title and URL, a line per step with what it returned, the PNG's path, the console and page
 errors the call provoked, and the last snapshot's tree for the refs it refers to. It ends with a screenshot unless
 `screenshot: false` or a `close` step leaves no page to capture; `path` names where that PNG goes (it must end in `.png`
-and resolves against the conversation's cwd; without it the PNG goes to `$ULTIMATE_HOME/screenshots`).
+and resolves against the conversation's cwd; without it the PNG goes to `$ULTIMATE_HOME/screenshots`). A `screenshot`
+step with a `selector` captures that one element, and `fullPage` does not apply to it.
+
+Errors keep their stack, and on a page of this host or of this machine (a preview, a project's dev server) every frame
+is named by the source position its script's source map gives (`web/src/app/a.tsx:56:25`), as dev tools show it. A site
+the tool was pointed at keeps the bundle positions of its frames: an error's text can name any URL, so only this host's
+own assets are ever read for a map.
 
 A UI at phone width, in both themes:
 
@@ -152,12 +180,13 @@ npm run check
 npm test
 ```
 
-`check` parses every module. `test` covers the step-to-command mapping (including this UI's theme, init script and the
-`url` that opens first), the budget arithmetic, batch parsing, session naming and socket paths, screenshots' paths,
-retiring a daemon another CLI version started, and local installation. Neither type-checks the web SDK nor starts a
-browser: a real `browser` call and the rendered card must be checked on a running host.
+`check` parses every module. `test` covers the step-to-command mapping (including this UI's theme, init script, the
+`url` that opens first and a screenshot of one element), the budget arithmetic, batch parsing, session naming and
+socket paths, screenshots' paths, source maps of stack frames and the origins they are read from, the card's reading of
+a result, retiring a daemon another CLI version started, and local installation. Neither type-checks nor builds the web
+facet: a real `browser` call and the rendered card must be checked on a running host.
 
 ## License and attribution
 
-MIT; see [LICENSE](LICENSE). `process-group.ts` is adapted from Ultimate's `lib/process-group.ts`. This is an independent
-extension, not an Ultimate product.
+MIT; see [LICENSE](LICENSE). `process-group.ts` and `source-frames.ts` are adapted from Ultimate's `lib/`. This is an
+independent extension, not an Ultimate product.
