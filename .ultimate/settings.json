@@ -1,0 +1,8 @@
+{
+  "lander": {
+    "checks": [
+      { "command": "npm run check", "timeout": 120 },
+      { "command": "npm test", "timeout": 300 }
+    ]
+  }
+}
